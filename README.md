@@ -1,141 +1,105 @@
 # F1 Telemetry Analytics Suite
 
-**Comparação de telemetria em tempo real entre seu carro e o piloto Max Verstappen (FIA Formula 1).**
+Plataforma desktop de alta performance para captura, persistência e análise comparativa de telemetria da Fórmula 1 em tempo real contra dados oficiais de voltas de referência da FIA (Max Verstappen).
 
-![Max Verstappen GIF](https://media.giphy.com/media/JziiO62XpYDl1e0Cdl/giphy.gif)
+<p align="center">
+  <img src="https://media.giphy.com/media/JziiO62XpYDl1e0Cdl/giphy.gif" alt="Max Verstappen F1" width="550"/>
+</p>
 
 ---
 
-## 📌 Visão Geral
+## Visão Geral da Engenharia
 
-Este projeto transforma dados de telemetria F1 (via protocolo UDP do *Telemetry Workshop* do jogo) em uma análise visual completa, comparando seus tempos e desempenho contra a volta mais rápida do Max Verstappen usando dados oficiais do FastF1.
+O projeto foi desenvolvido como uma demonstração prática de arquitetura limpa em Python, processando streams de dados binários em tempo real via UDP a 60 Hz sem comprometer o ciclo de renderização gráfica da interface.
 
-A arquitetura foi reestruturada seguindo princípios de **Software Engineering** para portfólio técnico:
-- **Layered Architecture** (Arquitetura em Camadas)
-- **Repository Pattern** (Padrão Repositório)
-- **Dependency Injection**
-- **SOLID Principles**
+### Decisões Técnicas & Arquiteturais
+- **Layered Architecture:** Separação estrita de responsabilidades entre Ingestão de Rede, Camada de Negócios/Análise, Persistência e UI.
+- **Concorrência & Thread-Safety:** Isolamento do loop de captura de socket UDP em thread secundária, sincronizando mutações de estado com a thread principal de UI via *Thread Locks*.
+- **Processamento Numérico Otimizado:** Interpolação e cálculo de Delta ponto a ponto vetorizados com NumPy puro (`np.interp`), garantindo desempenho em tempo real e portabilidade em ambientes Windows.
+- **Repository Pattern & ORM:** Persistência relacional com SQLAlchemy/SQLite para consulta e replay instantâneo de sessões anteriores.
 
-## 🏗️ Arquitetura do Projeto
+---
 
-```
+##  Estrutura do Projeto
+
+```text
 ProjetoF1/
-├── config.py              # Constantes centralizadas
-├── main.py                # Entry point enxusto (DI + loop)
-├── requirements.txt       # Dependências com versões fixadas
-├── database/              # Camada de persistência (SQLite + SQLAlchemy)
-│   ├── __init__.py
-│   ├── connection.py      # Engine/sessão do banco
-│   ├── models.py          # Tabelas: Laps e TelemetrySamples
-│   └── lap_repository.py  # CRUD operations
-├── ingestion/             # Camada de ingestão de dados
-│   ├── protocol_constants.py  # Offsets e IDs de pacotes UDP
-│   ├── packet_parser.py       # Funções puras de desempacotamento struct
-│   └── udp_listener.py        # Thread UDP com callbacks observador
-├── services/              # Camada de serviços de negócio
-│   ├── fastf1_service.py    # Ingestão FastF1 + cache
-│   └── telemetry_analyzer.py # Cálculos: delta, interpolação, smooth
-└── ui/                    # Interface gráfica Tkinter
-    ├── __init__.py
-    ├── app_window.py        # Main application window (injeção de dependência)
-    ├── components/
-    │   ├── delta_hud.py     # Widget Delta isolado (tk.Frame)
-    │   ├── sidebar.py       # Sidebar com seletores e histórico
-    │   └── telemetry_plots.py # Canvas Matplotlib integrado
+├── config.py                 # Constantes globais e configurações de rede/API
+├── main.py                   # Ponto de entrada da aplicação
+├── requirements.txt          # Dependências do projeto
+├── database/                 # Camada de Persistência (SQLite + SQLAlchemy)
+│   ├── connection.py         # Configuração de Engine e Session
+│   ├── models.py             # Modelagem de dados (Laps e TelemetrySamples)
+│   └── lap_repository.py     # Padrão Repository para operações CRUD
+├── ingestion/                # Camada de Ingestão de Dados
+│   ├── protocol_constants.py # Estruturas binárias (struct) e mapas de circuitos
+│   └── udp_listener.py       # Emissor UDP assíncrono com padrão Observer
+├── services/                 # Regras de Negócio e APIs Externas
+│   ├── fastf1_service.py     # Integração com FastF1, cache local e fallback
+│   └── telemetry_analyzer.py # Cálculos de delta escalar e interpolação linear
+└── ui/                       # Interface Gráfica e Visualização
+    ├── app_window.py         # Janela principal e loop de atualização
+    └── components/
+        └── telemetry_plots.py # Gráficos integrados via Matplotlib (TkAgg)
+
+## Funcionalidades
+Streaming UDP em Tempo Real: Decodificação de pacotes binários de telemetria (IDs 1, 2 e 6) do protocolo oficial dos jogos da franquia F1.
+
+Benchmark com Dados Reais da FIA: Integração com o FastF1 para download e processamento da telemetria da volta mais rápida oficial do circuito.
+
+HUD de Delta Dinâmico: Cálculo escalar instantâneo da diferença de tempo (ganho/perda) ao longo do traçado.
+
+Visualização Multi-Eixo: Gráficos de velocidade linear, curso de acelerador, freio e ângulo de esterçamento sincronizados por distância da pista.
+
+Histórico & Replay de Voltas: Salvamento de voltas completadas no banco de dados local com suporte a replay analítico na interface.
+
+## Modelagem de Dados
+A persistência utiliza SQLite gerenciado pelo SQLAlchemy ORM:
+
+laps: Armazena metadados da volta (circuito, tempo final, ano de referência e timestamp).
+
+telemetry_samples: Registros de alta densidade (distância, tempo em milissegundos, velocidade, inputs de pedais e volante) indexados por chave estrangeira (lap_id).
+
+## Como Executar
+
+
+1. Clonar o repositório e preparar o ambiente
+
 ```
+# Criar o ambiente virtual
+python -m venv .venv
 
-## 🛠️ Funcionalidades
-
-- **Ingestão UDP em tempo real** - Recebe dados do protocolo F1 2020+
-- **Carregamento oficial FastF1** - Volta mais rápida do Verstappen por temporada/pista
-- **Persistência SQLite** - Metadados e amostras de telemetria em tabelas relacionais indexadas
-- **Análise de Delta** - Tempo seu vs. referência em tempo real
-- **Visualização Matplotlib** - Gráficos de velocidade, throttle, brake e steer
-- **Histórico de voltas** - Salvamento automático em CSV e banco de dados
-- **Componentes isolados** - DeltaHUD, Sidebar e TelemetryPlates são tk.Frame reutilizáveis
-
-## 🚀 Como Rodar
-
-### 1. Pré-requisitos
-
-```bash
-# Recomendado: criar um ambiente virtual
-python3 -m venv .venv
-source .venv/bin/activate  # Windows: .venv\Scripts\activate
+# Ativar o ambiente virtual (Windows)
+.venv\Scripts\Activate.ps1
 
 # Instalar dependências
 pip install -r requirements.txt
 ```
 
-### 2. Executar a aplicação
+2. Configurar o jogo (F1 2021+)
+Nas opções de telemetria do simulador:
 
-```bash
+UDP Telemetry: Ligado (On)
+
+UDP IP Address: 127.0.0.1
+
+UDP Port: 20773
+
+UDP Send Rate: 60Hz (ou superior)
+
+3. Iniciar a aplicação
+
+```
 python main.py
 ```
 
-### 3. Captura de dados do jogo
+## Dependências Principais
+- FastF1: Acesso à telemetria oficial de finais de semana de corrida da FIA.
 
-Para que o projeto funcione, você precisa transmitir dados UDP do jogo:
-- **Jogo:** F1 2021-2024 (testado com 2024)
-- **Porta UDP:** 20773
-- **Protocolo:** Telemetry do jogo (pacotes 1, 2 e 6)
+- NumPy & Pandas: Tratamento vetorial de séries temporais e interpolação.
 
-## 💾 Banco de Dados
+- Matplotlib: Renderização gráfica personalizada embarcada no Tkinter.
 
-O projeto usa **SQLite** local (`database/f1_telemetry.db`) com SQLAlchemy ORM.
-
-**Tabelas criadas:**
-- `laps` - Metadados da volta (track_name, lap_time_seconds, year_reference)
-- `telemetry_samples` - Dados de alta resolução (distance, time_ms, speed, throttle, brake, steer) comForeignKey e índices
-
-**Benefício:** Consultas complexas giram em torno de `SELECT * FROM telemetry_samples WHERE lap_id = :id ORDER BY distance ASC` - operações em milissegundos sem I/O em disco.
-
-## 📦 Dependências (requirements.txt)
-
-```
-tkinter      # Já vem no Python (interface gráfica)
-matplotlib   >=3.6.0     # Renderização de gráficos
-numpy        >=1.24.0    # Processamento numérico
-scipy        >=1.10.0    # Interpolação de dados
-pandas       >=2.1.0     # Manipulação de dados CSV/SQL
-fastf1       >=1.10.0    # Dados oficiais FIA
-sqlalchemy   >=2.0.0     # ORM e migrations
-```
-
-## 📁 Estrutura de Pastas Importante
-
-- `laps/` - CSV's de voltas salvas automaticamente
-- `cache/` - Cache FastF1 (acelera carregamento de sessões)
-- `database/f1_telemetry.db` - Banco de dados SQLite
-- `config.py` - Configurações UDP, caminhos e constantes
-
-## 🎮 Controles da Interface
-
-| Controle | Função |
-|----------|--------|
-| **Ano** | Seletor de temporada da referência (VER) |
-| **Modo Live/Histórico** | Alternar entre dados em tempo real ou análise de volta salva |
-| **Analisar Volta** | Carregar volta selecionada da lista histórica |
-| **Atualizar** | Atualizar lista de voltas salvas |
-
-## 🤝 Como Contribuir
-
-1. Faça um fork do repositório
-2. Crie uma branch para sua feature (`git checkout -b feature/AmazingFeature`)
-3. Commit suas mudanças (`git commit -m 'Add some AmazingFeature'`)
-4. Push para a branch (`git push origin feature/AmazingFeature`)
-5. Abra um Pull Request
-
-## 📄 Licença
-
-Este projeto está licenciado sob a licença MIT - veja o arquivo [LICENSE] para detalhes.
-
-## 🙏 Créditos
-
-- **FastF1** - Dados oficiais da FIA
-- **GIPHY** - GIFs do Max Verstappen
-- **Protocol UDP** - Dados do Telemetry do jogo F1
+- SQLAlchemy: Mapeamento objeto-relacional e persistência estruturada.
 
 ---
-
-**Projeto desenvolvido como base de código profissional para portfólio técnico.**
