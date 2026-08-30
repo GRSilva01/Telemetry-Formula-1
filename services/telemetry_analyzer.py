@@ -1,130 +1,52 @@
-# ================= ANALISADOR DE TELEMETRIA =================
-# Módulo de funções puras para análise de dados de telemetria:
-# - Cálculo de delta entre dois pilotos
-# - Interpolação de dados
-# - Métricas de performance
-
 import numpy as np
-from scipy.interpolate import interp1d
-from typing import Tuple, Optional
 
-
-def calculate_delta(
-    my_time: float,
-    pro_time_sec: np.ndarray,
-    pro_dist: np.ndarray,
-    current_dist: float,
-) -> Optional[float]:
-    """Calcula o delta de tempo entre o piloto e a referência (VER).
-    
-    Usa interpolação para encontrar o tempo da referência na mesma distância.
-    
-    Args:
-        my_time: Tempo do piloto na mesma distância (em segundos)
-        pro_time_sec: Tempo da referência por ponto de distância
-        pro_dist: Distância dos pontos da referência
-        current_dist: Distância atual do piloto
-    
-    Returns:
-        Delta em segundos (negativo = mais rápido que referência), ou None se houver erro
+def calculate_delta(pro_dist, pro_time, my_dist, my_time, num_points=2500):
     """
-    try:
-        # Interpolação do tempo da referência na distância atual
-        # bounds_error=False evita erro se distância estiver fora do range
-        # fill_value="extrapolate" extrapola se necessário
-        pro_time_at_dist = interp1d(
-            pro_dist, pro_time_sec,
-            bounds_error=False, fill_value="extrapolate"
-        )(current_dist)
-
-        delta = my_time - pro_time_at_dist
-        return float(delta) if np.isfinite(delta) else None
-    except Exception as e:
-        print(f"[Telemetry Analyzer] Erro ao calcular delta: {e}")
-        return None
-
-
-def calculate_instant_delta(
-    my_dist: np.ndarray,
-    my_time_sec: np.ndarray,
-    pro_dist: np.ndarray,
-    pro_time_sec: np.ndarray,
-    index: int = -1,
-) -> Optional[float]:
-    """Calcula delta instantâneo no índice especificado.
-    
-    Args:
-        my_dist: Distâncias do piloto
-        my_time_sec: Tempos do piloto (segundos)
-        pro_dist: Distâncias da referência
-        pro_time_sec: Tempos da referência (segundos)
-        index: Índice no array (padrão: último ponto)
-    
-    Returns:
-        Delta em segundos no índice especificado
+    Calcula o delta de tempo ponto a ponto em uma malha contínua de distância.
+    Usa np.interp (puro NumPy) sem depender de DLLs do SciPy.
     """
-    try:
-        if index < 0:
-            index = len(my_dist) - 1
+    if len(pro_dist) < 2 or len(my_dist) < 2:
+        return np.array([]), np.array([])
 
-        if index >= len(my_dist) or index < 0:
-            return None
+    # Garante estrita monotonicidade e remoção de duplicatas
+    p_dist_uniq, p_idx = np.unique(pro_dist, return_index=True)
+    p_time_uniq = pro_time[p_idx]
 
-        current_dist = float(my_dist[index])
-        my_time = float(my_time_sec[index])
+    m_dist_uniq, m_idx = np.unique(my_dist, return_index=True)
+    m_time_uniq = my_time[m_idx]
 
-        # Busca interpolação da referência na distância do piloto
-        if current_dist >= pro_dist[0] and current_dist <= pro_dist[-1]:
-            pro_time_at_dist = interp1d(
-                pro_dist, pro_time_sec,
-                bounds_error=False, fill_value="extrapolate"
-            )(current_dist)
-        else:
-            # Extrapolação se estiver fora dos limites
-            pro_time_at_dist = interp1d(
-                pro_dist, pro_time_sec,
-                bounds_error=False, fill_value="extrapolate"
-            )(current_dist)
+    max_dist = min(p_dist_uniq.max(), m_dist_uniq.max())
+    if max_dist <= 0:
+        return np.array([]), np.array([])
 
-        delta = my_time - pro_time_at_dist
-        return float(delta) if np.isfinite(delta) else None
-    except Exception as e:
-        print(f"[Telemetry Analyzer] Erro no delta instantâneo: {e}")
-        return None
+    grid = np.linspace(0, max_dist, num=num_points)
 
+    # Interpolação 1D direta via NumPy
+    pro_interp = np.interp(grid, p_dist_uniq, p_time_uniq)
+    my_interp = np.interp(grid, m_dist_uniq, m_time_uniq)
 
-def smooth_signal(
-    data: np.ndarray,
-    window_size: int = 5,
-) -> np.ndarray:
-    """Aplica suavização móvel a um sinal de telemetria.
-    
-    Args:
-        data: Array de dados
-        window_size: Tamanho da janela de média móvel (ímpar recomendado)
-    
-    Returns:
-        Dados suavizados
+    delta = my_interp - pro_interp
+    return grid, delta
+
+def calculate_instant_delta(pro_dist, pro_time, current_dist, current_my_time):
     """
-    if len(data) <= window_size:
-        return data
+    Calcula o delta escalar instantâneo para o HUD/Relógio Digital.
+    """
+    if len(pro_dist) < 2 or current_dist <= 0:
+        return 0.0
 
-    # Média móvel simples
+    p_dist_uniq, p_idx = np.unique(pro_dist, return_index=True)
+    p_time_uniq = pro_time[p_idx]
+
+    # Encontra o tempo do piloto profissional naquela distância exata
+    pro_time_at_dist = np.interp(current_dist, p_dist_uniq, p_time_uniq)
+    return float(current_my_time - pro_time_at_dist)
+
+def smooth_signal(signal, window_size=5):
+    """
+    Suaviza sinais ruidosos (volante/inputs) usando média móvel via convolução.
+    """
+    if len(signal) < window_size:
+        return signal
     window = np.ones(window_size) / window_size
-    return np.convolve(data, window, mode='valid')
-
-
-def find_nearest_point(
-    target_dist: float,
-    dist_array: np.ndarray,
-) -> int:
-    """Encontra o índice do ponto mais próximo da distância alvo.
-    
-    Args:
-        target_dist: Distância alvo
-        dist_array: Array de distâncias ordenadas
-    
-    Returns:
-        Índice do ponto mais próximo
-    """
-    return int(np.abs(dist_array - target_dist).argmin())
+    return np.convolve(signal, window, mode='same')

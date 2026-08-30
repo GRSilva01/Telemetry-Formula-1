@@ -3,6 +3,7 @@
 # Recebem bytes e retornam Data Transfer Objects (DTOs) tipados.
 # Nenhuma lógica de negócio ou interação com UI/Banco de Dados.
 
+from typing import Dict, Any, List, Optional, Tuple
 import struct
 from typing import Optional, Tuple
 from ingestion.protocol_constants import (

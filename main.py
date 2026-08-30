@@ -1,18 +1,12 @@
-# ================= MAIN ENTRY POINT (Injeção de Dependência) =================
-# Este arquivo serve como entry point limpo da aplicação.
-# Instancia as dependências necessárias e inicia o loop da aplicação.
-# Responsabilidade única: orquestrar a criação dos componentes.
-
 import tkinter as tk
+from database.connection import init_db
 from ui.app_window import F1TelemetryApp
 
-
 def main():
-    """Ponto de entrada da aplicação."""
+    init_db()  # Cria o arquivo telemetry.db e as tabelas caso não existam
     root = tk.Tk()
     app = F1TelemetryApp(root)
     root.mainloop()
-
 
 if __name__ == "__main__":
     main()

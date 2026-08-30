@@ -1,96 +1,92 @@
-# ================= SERVIÇO FASTF1 =================
-# Camada de serviço responsável pela ingestão de dados oficiais da FIA via FastF1.
-# Isola a lógica de busca/ cache de dados da UI e do motor de persistência.
-
+import os
 import fastf1
-from typing import Optional, Tuple
-from datetime import datetime
-import config
+import numpy as np
 
+# Mapeamento do nome interno do jogo para o nome oficial do GP aceito pelo FastF1
+FASTF1_TRACK_NAME_MAP = {
+    "Melbourne": "Australian Grand Prix",
+    "Bahrain": "Bahrain Grand Prix",
+    "Catalunya": "Spanish Grand Prix",
+    "Monaco": "Monaco Grand Prix",
+    "Montreal": "Canadian Grand Prix",
+    "Silverstone": "British Grand Prix",
+    "Hungaroring": "Hungarian Grand Prix",
+    "Spa": "Belgian Grand Prix",
+    "Monza": "Italian Grand Prix",
+    "Singapore": "Singapore Grand Prix",
+    "Suzuka": "Japanese Grand Prix",
+    "Abu Dhabi": "Abu Dhabi Grand Prix",
+    "Austin": "United States Grand Prix",
+    "Sao Paulo": "São Paulo Grand Prix",
+    "Austria": "Austrian Grand Prix",
+    "Mexico": "Mexico City Grand Prix",
+    "Baku": "Azerbaijan Grand Prix",
+    "Zandvoort": "Dutch Grand Prix",
+    "Imola": "Emilia Romagna Grand Prix",
+    "Jeddah": "Saudi Arabian Grand Prix",
+    "Miami": "Miami Grand Prix",
+    "Las Vegas": "Las Vegas Grand Prix",
+    "Qatar": "Qatar Grand Prix"
+}
 
 class FastF1Service:
-    """Serviço para carregar dados de sessão F1 usando FastF1 com cache."""
-
-    def __init__(self, cache_dir: str = None):
-        self.cache_dir = cache_dir or config.CACHE_DIR
+    def __init__(self, cache_dir="cache"):
+        self.cache_dir = cache_dir
+        os.makedirs(self.cache_dir, exist_ok=True)
         fastf1.Cache.enable_cache(self.cache_dir)
-        self._cache = fastf1.Cache
 
-    def load_session(self, year: int, track_name: str, session_type: str = "Q") -> object:
-        """Carrega uma sessão F1 (treino, classificação, corrida).
-        
-        Args:
-            year: Ano da temporada F1
-            track_name: Nome da pista (ex: "Monaco", "Silverstone")
-            session_type: Tipo de sessão ("Q" = Qualifying, "R" = Race, "P1", "P2", "P3")
-        
-        Returns:
-            Session object do FastF1
+    def extract_reference_data(self, year, track_name, session_type="Q", driver="VER"):
         """
-        try:
-            session = fastf1.get_session(year, track_name, session_type)
-            session.load(telemetry=True, weather=False, messages=False)
-            return session
-        except Exception as e:
-            print(f"[FastF1 Service] Erro ao carregar sessão {year} {track_name}: {e}")
-            return None
-
-    def get_fastest_lap_driver(self, session) -> object:
-        """Retorna a volta mais rápida do piloto principal (padrão VER)."""
-        if session is None:
-            return None
-        try:
-            lap = session.laps.pick_drivers("VER").pick_fastest()
-            return lap
-        except Exception as e:
-            print(f"[FastF1 Service] Erro ao buscar volta mais rápida: {e}")
-            return None
-
-    def get_car_telemetry(self, lap) -> object:
-        """Retorna dados de telemetria da volta."""
-        if lap is None:
-            return None
-        try:
-            tel = lap.get_car_data().add_distance()
-            return tel
-        except Exception as e:
-            print(f"[FastF1 Service] Erro ao obter telemetria: {e}")
-            return None
-
-    def extract_reference_data(self, year: int, track_name: str, driver: str = "VER") -> Tuple:
-        """Extrai dados de referência (distância, velocidade, throttle, tempo) da volta mais rápida.
-        
-        Returns tuple: (distances, speeds, throttles, time_secs, lap_time_str)
+        Carrega a volta mais rápida da referência oficial da F1 com fallback automático de ano.
         """
-        session = self.load_session(year, track_name)
-        if session is None:
-            return ([], [], [], [], "")
+        gp_name = FASTF1_TRACK_NAME_MAP.get(track_name, track_name)
+        years_to_try = [int(year), 2024, 2023] if int(year) not in [2024, 2023] else [int(year), 2024, 2023]
 
-        lap = self.get_fastest_lap_driver(session)
-        if lap is None:
-            return ([], [], [], [], "")
+        for y in years_to_try:
+            try:
+                print(f"[FastF1] Tentando carregar {driver} em {gp_name} ({y} - {session_type})...")
+                session = fastf1.get_session(y, gp_name, session_type)
+                session.load(telemetry=True, weather=False, messages=False)
 
-        tel = self.get_car_telemetry(lap)
-        if tel is None:
-            return ([], [], [], [], "")
+                laps = session.laps.pick_drivers(driver)
+                if laps.empty:
+                    continue
 
-        # Extrair e unique-ify data (garantir pontos únicos e crescentes de distância)
-        p_dist, unique_idx = __import__("numpy").unique(
-            tel["Distance"].to_numpy(), return_index=True
-        )
+                lap = laps.pick_fastest()
+                if lap is None or lap.empty or str(lap["LapTime"]) == "NaT":
+                    continue
 
-        p_speed = tel["Speed"].to_numpy()[unique_idx]
-        p_throttle = tel["Throttle"].to_numpy()[unique_idx]
-        p_time = tel["Time"].dt.total_seconds().to_numpy()[unique_idx]
+                tel = lap.get_car_data().add_distance()
+                if tel.empty or "Distance" not in tel:
+                    continue
 
-        lap_time_str = str(lap["LapTime"]).split()[-1][:8]
+                p_dist, unique_idx = np.unique(tel["Distance"].to_numpy(), return_index=True)
+                p_speed = tel["Speed"].to_numpy()[unique_idx]
+                p_throttle = tel["Throttle"].to_numpy()[unique_idx]
+                p_time = tel["Time"].dt.total_seconds().to_numpy()[unique_idx]
+                lap_time_str = str(lap["LapTime"]).split()[-1][:8]
 
-        return (p_dist, p_speed, p_throttle, p_time, lap_time_str)
+                return {
+                    "success": True,
+                    "year_used": y,
+                    "distance": p_dist,
+                    "speed": p_speed,
+                    "throttle": p_throttle,
+                    "time_sec": p_time,
+                    "lap_time_str": lap_time_str,
+                    "error": None
+                }
 
-    def cache_exists(self, year: int, track_name: str) -> bool:
-        """Verifica se há cache para a sessão especificada."""
-        return self._cache.exists(f"{year}_{track_name}")
+            except Exception as e:
+                print(f"[FastF1] Falha para {gp_name} ({y}): {e}")
+                continue
 
+        return {
+            "success": False,
+            "error": f"Não foi possível obter dados oficiais para {gp_name}."
+        }
 
-# Instância global para injeção de dependência
+    def load_driver_lap(self, year, track_name, session_type="Q", driver="VER"):
+        return self.extract_reference_data(year, track_name, session_type, driver)
+
 fastf1_service = FastF1Service()

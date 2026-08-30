@@ -1,85 +1,63 @@
-from .models import Lap, TelemetrySample, get_session
-
+import pandas as pd
+from database.connection import get_session
+from database.models import Lap, TelemetrySample
 
 class LapRepository:
-    """Repositório para operações CRUD na tabela laps e telemetry_samples."""
-
     @staticmethod
-    def save_lap(track_name: str, lap_time_seconds: float, year_reference: int) -> Lap:
-        """Salva metadados de uma volta no banco de dados."""
+    def save_lap(track_name, lap_time_sec, telemetry_df, year_ref=2024):
         session = get_session()
         try:
             lap = Lap(
                 track_name=track_name,
-                lap_time_seconds=lap_time_seconds,
-                year_reference=year_reference,
-                is_valid=True,
+                lap_time_seconds=lap_time_sec,
+                year_reference=year_ref,
+                is_valid=True
             )
             session.add(lap)
-            session.commit()
-            return lap
-        except Exception:
-            session.rollback()
-            raise
-        finally:
-            session.close()
+            session.flush()  # Gera lap.id
 
-    @staticmethod
-    def get_laps_by_year(year: int) -> list[Lap]:
-        """Lista todas as voltas de um ano específico."""
-        session = get_session()
-        try:
-            return (
-                session.query(Lap)
-                .filter(Lap.year_reference == year)
-                .order_by(Lap.date_recorded.desc())
-                .all()
-            )
-        finally:
-            session.close()
-
-    @staticmethod
-    def get_lap_by_id(lap_id: int) -> Lap | None:
-        """Busca um lap por ID."""
-        session = get_session()
-        try:
-            return session.query(Lap).get(lap_id)
-        finally:
-            session.close()
-
-    @staticmethod
-    def save_telemetry_samples(lap_id: int, samples: list[dict]) -> None:
-        """Salva amostras de telemetria para uma volta específica."""
-        session = get_session()
-        try:
-            for sample_data in samples:
-                sample = TelemetrySample(
-                    lap_id=lap_id,
-                    distance=sample_data.get("distance", 0.0),
-                    time_ms=sample_data.get("time_ms", 0),
-                    speed=sample_data.get("speed", 0.0),
-                    throttle=sample_data.get("throttle", 0.0),
-                    brake=sample_data.get("brake", 0.0),
-                    steer=sample_data.get("steer", 0.0),
+            samples = [
+                TelemetrySample(
+                    lap_id=lap.id,
+                    distance=row['Distance'],
+                    time_ms=int(row['TimeMs']),
+                    speed=row['Speed'],
+                    throttle=row['Throttle'],
+                    brake=row['Brake'],
+                    steer=row['Steer']
                 )
-                session.add(sample)
+                for _, row in telemetry_df.iterrows()
+            ]
+            session.bulk_save_objects(samples)
             session.commit()
-        except Exception:
+            return lap.id
+        except Exception as e:
             session.rollback()
-            raise
+            raise e
         finally:
             session.close()
 
     @staticmethod
-    def get_telemetry_by_lap_id(lap_id: int) -> list[TelemetrySample]:
-        """Busca todas as amostras de telemetria de uma volta."""
+    def get_all_laps():
         session = get_session()
         try:
-            return (
-                session.query(TelemetrySample)
-                .filter(TelemetrySample.lap_id == lap_id)
-                .order_by(TelemetrySample.distance.asc())
-                .all()
-            )
+            return session.query(Lap).order_by(Lap.date_recorded.desc()).all()
+        finally:
+            session.close()
+
+    @staticmethod
+    def get_lap_telemetry_df(lap_id):
+        session = get_session()
+        try:
+            samples = session.query(TelemetrySample).filter_by(lap_id=lap_id).order_by(TelemetrySample.distance.asc()).all()
+            data = [{
+                'Distance': s.distance,
+                'TimeMs': s.time_ms,
+                'Speed': s.speed,
+                'Throttle': s.throttle,
+                'Brake': s.brake,
+                'Steer': s.steer
+            } for s in samples]
+            return pd.DataFrame(data)
         finally:
             session.close()

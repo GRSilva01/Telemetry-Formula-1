@@ -2,7 +2,6 @@
 # Dependências com versões fixadas para ambiente de produção/portfólio
 
 # Interface gráfica e plotagem
-tkinter            # Já vem incluso no Python (não precisa instalar)
 matplotlib         >=3.6.0
 numpy              >=1.24.0
 scipy              >=1.10.0

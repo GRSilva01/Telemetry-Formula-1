@@ -1,3 +1,70 @@
-cache/*
-laps/*.venv/
-minha_volta_f1.csv
+# ==========================================
+# 1. Ambientes Virtuais & Dependências
+# ==========================================
+.venv/
+venv/
+env/
+ENV/
+env.bak/
+venv.bak/
+
+# ==========================================
+# 2. Banco de Dados Local & Sessões Salvas
+# ==========================================
+# Evita versionar o banco SQLite com seus tempos e amostras
+*.db
+*.sqlite
+*.sqlite3
+telemetry.db
+
+# Histórico em CSV caso ainda existam arquivos legados
+laps/
+*.csv
+
+# ==========================================
+# 3. Cache de Dados do FastF1 e APIs
+# ==========================================
+# O FastF1 baixa centenas de MBs de dados brutos da FIA
+cache/
+.fastf1_cache/
+
+# ==========================================
+# 4. Bytecodes do Python & Cache do Interpretador
+# ==========================================
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# ==========================================
+# 5. Variáveis de Ambiente & Chaves de API
+# ==========================================
+.env
+.env.local
+.env.*.local
+*.env
+
+# ==========================================
+# 6. Configurações de IDEs e Editores
+# ==========================================
+.vscode/
+.idea/
+*.sublime-workspace
+*.sublime-project
+.cursor/
+
+# ==========================================
+# 7. Arquivos Temporários do Sistema Operacional
+# ==========================================
+.DS_Store
+Thumbs.db
+ehthumbs.db
+[Dd]esktop.ini
+
+# ==========================================
+# 8. Logs e Despejos de Memória (Dumps)
+# ==========================================
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
