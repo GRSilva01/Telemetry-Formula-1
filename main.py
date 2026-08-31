@@ -3,7 +3,9 @@ from database.connection import init_db
 from ui.app_window import F1TelemetryApp
 
 def main():
-    init_db()  # Cria o arquivo telemetry.db e as tabelas caso não existam
+    # Inicializa o schema do banco de dados SQLite
+    init_db()
+
     root = tk.Tk()
     app = F1TelemetryApp(root)
     root.mainloop()

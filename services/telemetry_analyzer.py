@@ -1,52 +1,76 @@
 import numpy as np
+from typing import List, Dict, Any
 
-def calculate_delta(pro_dist, pro_time, my_dist, my_time, num_points=2500):
+def calculate_instant_delta(pro_dist: np.ndarray, pro_time: np.ndarray, cur_dist: float, cur_time: float) -> float:
+    """Calcula a diferença escalar instantânea (segundos) contra a referência pro."""
+    if len(pro_dist) < 2 or cur_dist <= pro_dist[0]:
+        return 0.0
+    if cur_dist >= pro_dist[-1]:
+        pro_t = pro_time[-1]
+    else:
+        pro_t = float(np.interp(cur_dist, pro_dist, pro_time))
+    return float(cur_time - pro_t)
+
+def calculate_cumulative_deltas(my_dist: np.ndarray, my_time: np.ndarray, pro_dist: np.ndarray, pro_time: np.ndarray) -> np.ndarray:
+    """Retorna o vetor completo de delta cumulativo ao longo da volta."""
+    if len(my_dist) < 2 or len(pro_dist) < 2:
+        return np.zeros_like(my_dist)
+    pro_interpolated = np.interp(my_dist, pro_dist, pro_time)
+    return my_time - pro_interpolated
+
+def generate_mini_sectors(track_length: float, num_sectors: int = 20) -> List[Dict[str, float]]:
+    """Gera faixas equidistantes de mini-setores ao longo do traçado."""
+    step = track_length / num_sectors
+    sectors = []
+    for i in range(num_sectors):
+        sectors.append({
+            "sector_idx": i + 1,
+            "start_dist": i * step,
+            "end_dist": (i + 1) * step,
+            "delta": 0.0,
+            "status": "EQUAL"
+        })
+    return sectors
+
+def calculate_mini_sectors_status(mini_sectors: List[Dict[str, float]], my_dist: np.ndarray, my_deltas: np.ndarray) -> List[Dict[str, Any]]:
+    """Atualiza o delta de cada micro-setor comparando a variação local de tempo."""
+    if len(my_dist) < 5 or len(my_deltas) < 5:
+        return mini_sectors
+
+    results = []
+    for s in mini_sectors:
+        mask = (my_dist >= s["start_dist"]) & (my_dist <= s["end_dist"])
+        if np.any(mask):
+            sub_deltas = my_deltas[mask]
+            # Variação de delta dentro do setor (ganho ou perda local)
+            local_diff = sub_deltas[-1] - sub_deltas[0]
+            status = "GREEN" if local_diff < -0.015 else ("RED" if local_diff > 0.015 else "YELLOW")
+            results.append({
+                "sector_idx": s["sector_idx"],
+                "start_dist": s["start_dist"],
+                "end_dist": s["end_dist"],
+                "delta": local_diff,
+                "status": status
+            })
+        else:
+            results.append(s)
+    return results
+
+def calculate_trail_braking_score(brake_array: np.ndarray, steer_array: np.ndarray) -> float:
     """
-    Calcula o delta de tempo ponto a ponto em uma malha contínua de distância.
-    Usa np.interp (puro NumPy) sem depender de DLLs do SciPy.
+    Calcula um score (0 a 100%) da suavidade na transição entre frenagem e esterçamento.
+    Mede a sobreposição controlada de freio decrescente com aumento de volante.
     """
-    if len(pro_dist) < 2 or len(my_dist) < 2:
-        return np.array([]), np.array([])
-
-    # Garante estrita monotonicidade e remoção de duplicatas
-    p_dist_uniq, p_idx = np.unique(pro_dist, return_index=True)
-    p_time_uniq = pro_time[p_idx]
-
-    m_dist_uniq, m_idx = np.unique(my_dist, return_index=True)
-    m_time_uniq = my_time[m_idx]
-
-    max_dist = min(p_dist_uniq.max(), m_dist_uniq.max())
-    if max_dist <= 0:
-        return np.array([]), np.array([])
-
-    grid = np.linspace(0, max_dist, num=num_points)
-
-    # Interpolação 1D direta via NumPy
-    pro_interp = np.interp(grid, p_dist_uniq, p_time_uniq)
-    my_interp = np.interp(grid, m_dist_uniq, m_time_uniq)
-
-    delta = my_interp - pro_interp
-    return grid, delta
-
-def calculate_instant_delta(pro_dist, pro_time, current_dist, current_my_time):
-    """
-    Calcula o delta escalar instantâneo para o HUD/Relógio Digital.
-    """
-    if len(pro_dist) < 2 or current_dist <= 0:
+    if len(brake_array) < 10:
         return 0.0
 
-    p_dist_uniq, p_idx = np.unique(pro_dist, return_index=True)
-    p_time_uniq = pro_time[p_idx]
+    # Condição de entrada de curva: Freio ativo (> 5%) com volante virando (> 10%)
+    mask = (brake_array > 5.0) & (np.abs(steer_array) > 10.0)
+    if not np.any(mask):
+        return 0.0
 
-    # Encontra o tempo do piloto profissional naquela distância exata
-    pro_time_at_dist = np.interp(current_dist, p_dist_uniq, p_time_uniq)
-    return float(current_my_time - pro_time_at_dist)
+    overlap_points = np.sum(mask)
+    total_braking_points = np.sum(brake_array > 5.0)
 
-def smooth_signal(signal, window_size=5):
-    """
-    Suaviza sinais ruidosos (volante/inputs) usando média móvel via convolução.
-    """
-    if len(signal) < window_size:
-        return signal
-    window = np.ones(window_size) / window_size
-    return np.convolve(signal, window, mode='same')
+    score = (overlap_points / max(total_braking_points, 1)) * 100.0
+    return min(float(score * 1.5), 100.0)
