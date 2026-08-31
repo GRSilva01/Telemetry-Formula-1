@@ -41,6 +41,7 @@ ProjetoF1/
     ├── app_window.py         # Janela principal e loop de atualização
     └── components/
         └── telemetry_plots.py # Gráficos integrados via Matplotlib (TkAgg)
+```
 
 ## Funcionalidades
 Streaming UDP em Tempo Real: Decodificação de pacotes binários de telemetria (IDs 1, 2 e 6) do protocolo oficial dos jogos da franquia F1.
@@ -63,7 +64,7 @@ telemetry_samples: Registros de alta densidade (distância, tempo em milissegund
 ## Como Executar
 
 
-1. Clonar o repositório e preparar o ambiente
+### 1. Clonar o repositório e preparar o ambiente
 
 ```
 # Criar o ambiente virtual
@@ -76,7 +77,7 @@ python -m venv .venv
 pip install -r requirements.txt
 ```
 
-2. Configurar o jogo (F1 2021+)
+### 2. Configurar o jogo (F1 2021+)
 Nas opções de telemetria do simulador:
 
 UDP Telemetry: Ligado (On)
@@ -87,7 +88,7 @@ UDP Port: 20773
 
 UDP Send Rate: 60Hz (ou superior)
 
-3. Iniciar a aplicação
+### 3. Iniciar a aplicação
 
 ```
 python main.py
