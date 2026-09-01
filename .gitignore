@@ -26,7 +26,7 @@ laps/
 # ==========================================
 # O FastF1 baixa centenas de MBs de dados brutos da FIA
 cache/
-.fastf1_cache/
+.cache_fastf1/
 
 # ==========================================
 # 4. Bytecodes do Python & Cache do Interpretador
